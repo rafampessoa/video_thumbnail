@@ -1,6 +1,5 @@
 package xyz.justsoft.video_thumbnail;
 
-import android.content.Context;
 import android.graphics.Bitmap;
 import android.media.MediaMetadataRetriever;
 import android.os.Handler;
@@ -33,13 +32,11 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
     private static String TAG = "ThumbnailPlugin";
     private static final int HIGH_QUALITY_MIN_VAL = 70;
 
-    private Context context;
     private ExecutorService executor;
     private MethodChannel channel;
 
     @Override
     public void onAttachedToEngine(@NonNull FlutterPluginBinding binding) {
-        context = binding.getApplicationContext();
         executor = Executors.newCachedThreadPool();
         channel = new MethodChannel(binding.getBinaryMessenger(), "plugins.justsoft.xyz/video_thumbnail");
         channel.setMethodCallHandler(this);
@@ -58,7 +55,6 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
         final Map<String, Object> args = call.arguments();
 
         final String video = (String) args.get("video");
-        final HashMap<String, String> headers = (HashMap<String, String>) args.get("headers");
         final int format = (int) args.get("format");
         final int maxh = (int) args.get("maxh");
         final int maxw = (int) args.get("maxw");
@@ -76,11 +72,11 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
                 try {
                     if (method.equals("file")) {
                         final String path = (String) args.get("path");
-                        thumbnail = buildThumbnailFile(video, headers, path, format, maxh, maxw, timeMs, quality);
+                        thumbnail = buildThumbnailFile(video, path, format, maxh, maxw, timeMs, quality);
                         handled = true;
 
                     } else if (method.equals("data")) {
-                        thumbnail = buildThumbnailData(video, headers, format, maxh, maxw, timeMs, quality);
+                        thumbnail = buildThumbnailData(video, format, maxh, maxw, timeMs, quality);
                         handled = true;
                     }
                 } catch (Exception e) {
@@ -116,11 +112,10 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
         }
     }
 
-    private byte[] buildThumbnailData(final String vidPath, final HashMap<String, String> headers, int format, int maxh,
-            int maxw, int timeMs, int quality) {
-        // Log.d(TAG, String.format("buildThumbnailData( format:%d, maxh:%d, maxw:%d,
-        // timeMs:%d, quality:%d )", format, maxh, maxw, timeMs, quality));
-        Bitmap bitmap = createVideoThumbnail(vidPath, headers, maxh, maxw, timeMs);
+    private byte[] buildThumbnailData(String vidPath, int format, int maxh, int maxw, int timeMs, int quality) {
+        Log.d(TAG, String.format("buildThumbnailData( format:%d, maxh:%d, maxw:%d, timeMs:%d, quality:%d )", format,
+                maxh, maxw, timeMs, quality));
+        Bitmap bitmap = createVideoThumbnail(vidPath, maxh, maxw, timeMs);
         if (bitmap == null)
             throw new NullPointerException();
 
@@ -132,20 +127,14 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
         return stream.toByteArray();
     }
 
-    private String buildThumbnailFile(final String vidPath, final HashMap<String, String> headers, String path,
-            int format, int maxh, int maxw, int timeMs,
-            int quality) {
-        // Log.d(TAG, String.format("buildThumbnailFile( format:%d, maxh:%d, maxw:%d,
-        // timeMs:%d, quality:%d )", format, maxh, maxw, timeMs, quality));
-        final byte bytes[] = buildThumbnailData(vidPath, headers, format, maxh, maxw, timeMs, quality);
+    private String buildThumbnailFile(String vidPath, String path, int format, int maxh, int maxw, int timeMs,
+                                      int quality) {
+        Log.d(TAG, String.format("buildThumbnailFile( format:%d, maxh:%d, maxw:%d, timeMs:%d, quality:%d )", format,
+                maxh, maxw, timeMs, quality));
+        final byte bytes[] = buildThumbnailData(vidPath, format, maxh, maxw, timeMs, quality);
         final String ext = formatExt(format);
         final int i = vidPath.lastIndexOf(".");
         String fullpath = vidPath.substring(0, i + 1) + ext;
-        final boolean isLocalFile = (vidPath.startsWith("/") || vidPath.startsWith("file://"));
-
-        if (path == null && !isLocalFile) {
-            path = context.getCacheDir().getAbsolutePath();
-        }
 
         if (path != null) {
             if (path.endsWith(ext)) {
@@ -168,7 +157,7 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
             f.close();
             Log.d(TAG, String.format("buildThumbnailFile( written:%d )", bytes.length));
         } catch (java.io.IOException e) {
-            e.printStackTrace();
+            e.getStackTrace();
             throw new RuntimeException(e);
         }
         return fullpath;
@@ -206,8 +195,7 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
      * @param targetH the max height of the thumbnail
      * @param targetW the max width of the thumbnail
      */
-    public Bitmap createVideoThumbnail(final String video, final HashMap<String, String> headers, int targetH,
-            int targetW, int timeMs) {
+    public static Bitmap createVideoThumbnail(final String video, int targetH, int targetW, int timeMs) {
         Bitmap bitmap = null;
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         try {
@@ -216,16 +204,15 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
             } else if (video.startsWith("file://")) {
                 setDataSource(video.substring(7), retriever);
             } else {
-                retriever.setDataSource(video, (headers != null) ? headers : new HashMap<String, String>());
+                retriever.setDataSource(video, new HashMap<String, String>());
             }
 
             if (targetH != 0 || targetW != 0) {
                 if (android.os.Build.VERSION.SDK_INT >= 27 && targetH != 0 && targetW != 0) {
                     // API Level 27
-                    bitmap = retriever.getScaledFrameAtTime(timeMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST,
-                            targetW, targetH);
+                    bitmap = retriever.getScaledFrameAtTime(timeMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, targetW, targetH);
                 } else {
-                    bitmap = retriever.getFrameAtTime(timeMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST);
+                    bitmap = retriever.getFrameAtTime(timeMs * 1000);
                     if (bitmap != null) {
                         int width = bitmap.getWidth();
                         int height = bitmap.getHeight();
@@ -240,7 +227,7 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
                     }
                 }
             } else {
-                bitmap = retriever.getFrameAtTime(timeMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST);
+                bitmap = retriever.getFrameAtTime(timeMs * 1000);
             }
         } catch (IllegalArgumentException ex) {
             ex.printStackTrace();
@@ -251,7 +238,7 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
         } finally {
             try {
                 retriever.release();
-            } catch (RuntimeException | IOException ex) {
+            } catch (RuntimeException ex) {
                 ex.printStackTrace();
             }
         }
@@ -259,7 +246,7 @@ public class VideoThumbnailPlugin implements FlutterPlugin, MethodCallHandler {
         return bitmap;
     }
 
-    private static void setDataSource(String video, final MediaMetadataRetriever retriever) throws IOException {
+    private static void setDataSource(String video, MediaMetadataRetriever retriever) throws IOException {
         File videoFile = new File(video);
         FileInputStream inputStream = new FileInputStream(videoFile.getAbsolutePath());
         retriever.setDataSource(inputStream.getFD());
